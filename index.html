@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>منصة Level Devil - العب وحمل الآن</title>
+    <style>
+        :root { --neon: #00f2ff; --bg: #0a0a0a; --red: #ff0055; }
+        body { margin: 0; background: var(--bg); color: #fff; font-family: 'Segoe UI', sans-serif; overflow: hidden; display: flex; align-items: center; justify-content: center; height: 100vh; }
+        
+        #main-container { position: relative; width: 950px; height: 550px; border: 2px solid #333; background: #000; border-radius: 15px; overflow: hidden; box-shadow: 0 0 50px rgba(0,0,0,1); }
+        
+        /* شاشات الواجهة */
+        .screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.9); z-index: 20; transition: 0.5s ease; }
+        .hidden { opacity: 0; pointer-events: none; transform: scale(1.1); }
+        
+        h1 { font-size: 4rem; color: var(--neon); text-shadow: 0 0 20px var(--neon); margin: 0; }
+        .menu-btns { display: flex; gap: 20px; margin-top: 30px; }
+        
+        .btn { padding: 15px 35px; font-size: 1.2rem; background: transparent; border: 2px solid var(--neon); color: var(--neon); cursor: pointer; border-radius: 8px; transition: 0.3s; font-weight: bold; text-decoration: none; }
+        .btn:hover { background: var(--neon); color: #000; box-shadow: 0 0 30px var(--neon); }
+        .btn.download { border-color: #ffcc00; color: #ffcc00; }
+        .btn.download:hover { background: #ffcc00; color: #000; box-shadow: 0 0 30px #ffcc00; }
+
+        canvas { display: block; background: #0f0f0f; cursor: none; }
+        #hud { position: absolute; top: 15px; width: 100%; display: flex; justify-content: space-around; z-index: 10; font-size: 1.2rem; pointer-events: none; }
+        .stat b { color: var(--neon); }
+    </style>
+</head>
+<body>
+
+<div id="main-container">
+    <div id="start-screen" class="screen">
+        <h1>LEVEL DEVIL</h1>
+        <p style="color: #666; margin-top: 10px;">تحدي الـ 500 مستوى - نسخة الأنيميشن</p>
+        <div class="menu-btns">
+            <button class="btn" onclick="startGame()">العب الآن</button>
+            <button class="btn download" onclick="downloadGame()">تحميل اللعبة (Offline)</button>
+        </div>
+    </div>
+
+    <div id="death-screen" class="screen hidden">
+        <h1 style="color: var(--red); text-shadow: 0 0 20px var(--red);">لقد سحقت!</h1>
+        <div class="menu-btns">
+            <button class="btn" onclick="retry()">حاول مجدداً</button>
+        </div>
+    </div>
+
+    <div id="hud">
+        <div class="stat">المستوى: <b id="lvl-txt">1</b> / 500</div>
+        <div class="stat">الوفيات: <b id="death-txt">0</b></div>
+    </div>
+    
+    <canvas id="gameCanvas"></canvas>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+canvas.width = 950;
+canvas.height = 550;
+
+let state = 'MENU';
+let level = 1;
+let deaths = 0;
+let shake = 0;
+
+const player = {
+    x: 80, y: 400, w: 28, h: 28,
+    vx: 0, vy: 0, spd: 0.8, jump: 19, grav: 0.7, fric: 0.85,
+    grounded: false, sX: 1, sY: 1
+};
+
+let platforms = [];
+let spikes = [];
+let goal = { x: 850, y: 410, w: 40, h: 60 };
+
+function setupLevel(n) {
+    platforms = [{ x: 0, y: 480, w: 200, h: 70 }, { x: 750, y: 480, w: 200, h: 70 }];
+    spikes = [];
+    goal.x = 860;
+    
+    let count = 3 + Math.floor(n / 25);
+    for(let i=0; i<count; i++) {
+        let px = 250 + (i * 140);
+        let py = 420 - (Math.random() * 150);
+        platforms.push({
+            x: px, y: py, w: 100, h: 18,
+            type: Math.random() < 0.3 ? 'fake' : 'solid'
+        });
+    }
+}
+
+const keys = {};
+window.onkeydown = e => keys[e.code] = true;
+window.onkeyup = e => keys[e.code] = false;
+
+function startGame() {
+    document.getElementById('start-screen').classList.add('hidden');
+    state = 'PLAYING';
+    setupLevel(level);
+}
+
+function retry() {
+    document.getElementById('death-screen').classList.add('hidden');
+    state = 'PLAYING';
+    player.x = 80; player.y = 400; player.vx = 0; player.vy = 0;
+}
+
+// دالة التحميل
+function downloadGame() {
+    const htmlContent = document.documentElement.outerHTML;
+    const blob = new Blob([htmlContent], { type: 'text/html' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'Level_Devil_Game.html';
+    a.click();
+}
+
+function update() {
+    if(state !== 'PLAYING') return;
+
+    if(keys['ArrowRight'] || keys['KeyD']) player.vx += player.spd;
+    if(keys['ArrowLeft'] || keys['KeyA']) player.vx -= player.spd;
+    if((keys['Space'] || keys['ArrowUp'] || keys['KeyW']) && player.grounded) {
+        player.vy = -player.jump;
+        player.grounded = false;
+        player.sX = 0.7; player.sY = 1.3; // أنيميشن النط
+    }
+
+    player.vx *= player.fric;
+    player.vy += player.grav;
+    player.x += player.vx;
+    player.y += player.vy;
+
+    player.sX += (1 - player.sX) * 0.1;
+    player.sY += (1 - player.sY) * 0.1;
+    player.grounded = false;
+
+    platforms.forEach(p => {
+        if(player.x < p.x + p.w && player.x + player.w > p.x &&
+           player.y < p.y + p.h && player.y + player.h > p.y) {
+            if(player.vy > 0 && player.y + player.h - player.vy <= p.y) {
+                if(!player.grounded) { player.sX = 1.3; player.sY = 0.7; }
+                player.y = p.y - player.h;
+                player.vy = 0;
+                player.grounded = true;
+                if(p.type === 'fake') p.y += 10;
+            }
+        }
+    });
+
+    if(player.x < goal.x + goal.w && player.x + player.w > goal.x &&
+       player.y < goal.y + goal.h && player.y + player.h > goal.y) {
+        level++;
+        document.getElementById('lvl-txt').innerText = level;
+        setupLevel(level);
+        player.x = 80; player.y = 400;
+    }
+
+    if(player.y > canvas.height) {
+        state = 'DEAD';
+        deaths++;
+        shake = 10;
+        document.getElementById('death-txt').innerText = deaths;
+        document.getElementById('death-screen').classList.remove('hidden');
+    }
+}
+
+function draw() {
+    ctx.save();
+    if(shake > 0) { ctx.translate(Math.random()*shake, Math.random()*shake); shake *= 0.9; }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // الخلفية (الخطوط)
+    ctx.strokeStyle = '#1a1a1a';
+    for(let i=0; i<canvas.width; i+=50) {
+        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
+    }
+
+    // المنصات
+    platforms.forEach(p => {
+        ctx.fillStyle = p.type === 'fake' ? '#331111' : '#222';
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        ctx.strokeStyle = '#444';
+        ctx.strokeRect(p.x, p.y, p.w, p.h);
+    });
+
+    // الباب
+    ctx.shadowBlur = 15; ctx.shadowColor = "#ffcc00";
+    ctx.fillStyle = "#ffcc00";
+    ctx.fillRect(goal.x, goal.y, goal.w, goal.h);
+
+    // اللاعب (Animation)
+    ctx.save();
+    ctx.translate(player.x + player.w/2, player.y + player.h);
+    ctx.scale(player.sX, player.sY);
+    ctx.shadowBlur = 15; ctx.shadowColor = "#00f2ff";
+    ctx.fillStyle = "#00f2ff";
+    ctx.fillRect(-player.w/2, -player.h, player.w, player.h);
+    ctx.restore();
+
+    ctx.restore();
+    update();
+    requestAnimationFrame(draw);
+}
+
+draw();
+</script>
+</body>
+</html>
